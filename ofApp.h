@@ -24,6 +24,8 @@
 #pragma once
 
 #include "ofMain.h"
+#include "ofxGui.h"
+
 #include <glm/gtx/intersect.hpp>
 
 //  General Purpose Ray class 
@@ -99,7 +101,9 @@ public:
 		ofSetColor(ofColor::gray);
 		ofDrawSphere(position, radius);
 	}
-
+	void setIntensity(float i) {
+		intensity = i;
+	}
 	float radius = .5;
 	float intensity = 1.0;
 };
@@ -237,9 +241,8 @@ public:
 	void drawGrid();
 	void drawAxis(glm::vec3 position);
 	ofColor lambert(const glm::vec3& p, const glm::vec3& norm, const ofColor diffuse, float r);
-	ofColor phong(const glm::vec3& p, const glm::vec3& norm, const ofColor diffuse, const ofColor specular, float power);
+	ofColor phong(const glm::vec3& p, const glm::vec3& norm, const ofColor diffuse, const ofColor specular, float power, float r);
 
-	float p;
 
 	bool bHide = true;
 	bool bShowImage = false;
@@ -263,4 +266,12 @@ public:
 	bool drawImage = false;
 	bool trace = false;
 	bool background = true;
+
+	//GUI
+	//
+	ofxFloatSlider power;
+	ofxFloatSlider intensity;
+
+	ofxPanel gui;
+
 };
