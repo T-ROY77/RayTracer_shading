@@ -2,9 +2,13 @@
 
 #include <glm/gtx/intersect.hpp>
 
-
+//render is too bright?
+//does phong call lambert?
+//
+// 
 // Intersect Ray with Plane  (wrapper on glm::intersect*
 //
+
 bool Plane::intersect(const Ray& ray, glm::vec3& point, glm::vec3& normalAtIntersect) {
 	float dist;
 	bool insidePlane = false;
@@ -12,18 +16,20 @@ bool Plane::intersect(const Ray& ray, glm::vec3& point, glm::vec3& normalAtInter
 	if (hit) {
 		Ray r = ray;
 		point = r.evalPoint(dist);
-		intersectionPoint = r.evalPoint(dist + .5);
+		setIntersectionPoint(r.evalPoint(dist));
+
 		normalAtIntersect = this->normal;
-		glm::vec2 xrange = glm::vec2(position.x - width / 2, position.x + width / 2);
-		glm::vec2 zrange = glm::vec2(position.z - height / 2, position.z + height / 2);
-		if (point.x < xrange[1] && point.x > xrange[0] && point.z < zrange[1] && point.z > zrange[0]) {
+		glm::vec2 xrange = glm::vec2(position.x - width / 2, position.x + width
+			/ 2);
+		glm::vec2 zrange = glm::vec2(position.z - height / 2, position.z +
+			height / 2);
+		if (point.x < xrange[1] && point.x > xrange[0] && point.z < zrange[1]
+			&& point.z > zrange[0]) {
 			insidePlane = true;
 		}
 	}
 	return insidePlane;
 }
-
-
 // Convert (u, v) to (x, y, z) 
 // We assume u,v is in [0, 1]
 //
@@ -47,7 +53,7 @@ void ofApp::setup() {
 	image.allocate(imageWidth, imageHeight, ofImageType::OF_IMAGE_COLOR);
 
 	gui.setup();
-	gui.add(intensity.setup("Light intensity", 1.0, .1, 5));
+	gui.add(intensity.setup("Light intensity", .5, .1, 1));
 
 	gui.add(power.setup("Phong p", 100, 10, 10000));
 	bHide = true;
@@ -90,29 +96,28 @@ void ofApp::rayTrace() {
 			background = true;																//reset variables every pixel
 			distance = FLT_MIN;
 			close = FLT_MAX;
+			c = 0;
+			float u = (i + .5) / image.getWidth();
+			float v = 1 - (j + .5) / image.getHeight();
+
+			Ray r = renderCam.getRay(u, v);
 			for (int k = 0; k < scene.size(); k++) {
-				float u = (i + .5) / image.getWidth();
-				float v = 1 - (j + .5) / image.getHeight();
-
-				Ray r = renderCam.getRay(u, v);
-
-				if (scene[k]->intersect(r, glm::vec3(i, j, 0), glm::vec3(0, 1, 0))) {
+				if (scene[k]->intersect(r, scene[k]->intersectionPoint, glm::vec3(0, 1, 0))) {
 					background = false;														//if intersected with scene object, pixel is not background
 
 					distance = glm::distance(r.p, scene[k]->position);						//calculate distance of intersection
-
 					if (distance < close)													//if current object is closest to viewplane
 					{
-						c = k;
+						c = k;																//save index of closest object
 						close = distance;													//set threshold to new closest distance
 					}
 				}
-				closest = scene[c]->diffuseColor;									//set to closest object color
-				closest = lambert(r.evalPoint(close), scene[c]->getNormal(glm::vec3(0, 0, 0)), closest, distance);
-				closest += phong(r.evalPoint(close), scene[c]->getNormal(glm::vec3(0, 0, 0)), closest, ofColor::white, power, distance);
+			}
+			if (!background) {
+				closest = shade(r.evalPoint(close), scene[c]->getNormal(glm::vec3(0, 0, 0)), scene[c]->diffuseColor, distance, ofColor::gray, power, r);
 				image.setColor(i, j, closest);
 			}
-			if (background) {																//if pixel is background set to black
+			else if (background) {																//if pixel is background set to black
 				image.setColor(i, j, ofColor::black);
 			}
 		}
@@ -125,48 +130,63 @@ void ofApp::rayTrace() {
 }
 
 //--------------------------------------------------------------
-ofColor ofApp::lambert(const glm::vec3& p, const glm::vec3& norm, const ofColor diffuse, float r) {
+ofColor ofApp::lambert(const glm::vec3& p, const glm::vec3& norm, const ofColor diffuse, float distance, Ray r, Light light) {
 	ofColor lambert = ofColor(0, 0, 0);
-	ofColor k = diffuse;
 	float zero = 0.0;
 
-	for (int i = 0; i < light.size(); i++) {
-		/*
-		Ray shadowRay = Ray(scene[0]->intersectionPoint, light[i]->position - p);
-		for (int j = 0; j < scene.size(); j++) {
-			if (scene[j]->intersect(shadowRay, scene[j]->position, scene[j]->getNormal(p))) {
-				return ofColor::black;
-			}
-		}
-		*/
-		glm::vec3 l = glm::normalize(light[i]->position - p);
-		lambert += k * (light[i]->intensity / r * r) * (glm::max(zero, glm::dot(norm, l)));
-	}
+	glm::vec3 l = glm::normalize(light.position - p);
+	lambert += diffuse * (light.intensity / distance * distance) * (glm::max(zero, glm::dot(norm, l)));
+	
 	return lambert;
 }
 
 
 //--------------------------------------------------------------
-ofColor ofApp::phong(const glm::vec3& p, const glm::vec3& norm, const ofColor diffuse, const ofColor specular, float power, float r) {
+ofColor ofApp::phong(const glm::vec3& p, const glm::vec3& norm, const ofColor diffuse, const ofColor specular, float power, float distance, Ray r, Light light) {
 	ofColor phong = ofColor(0, 0, 0);
 	glm::vec3 h = glm::vec3(0);
 	float zero = 0.0;
-	phong = diffuse;
-	for (int i = 0; i < light.size(); i++) {
-		glm::vec3 l = glm::normalize(light[i]->position - p);
-		glm::vec3 v = glm::normalize(renderCam.position - p);
-		h = glm::normalize(l + v);
-		phong += lambert(p, norm, diffuse, r) + specular * (light[i]->intensity / r * r) * glm::pow(glm::max(zero, glm::dot(norm, h)), power);
-	}
+
+	glm::vec3 l = glm::normalize(light.position - p);
+	glm::vec3 v = glm::normalize(renderCam.position - p);
+	h = glm::normalize(l + v);
+	//phong += lambert(p, norm, diffuse, distance, r, light) + specular * (light.intensity / distance * distance) * glm::pow(glm::max(zero, glm::dot(norm, h)), power);
+	phong += specular * (light.intensity / distance * distance) * glm::pow(glm::max(zero, glm::dot(norm, h)), power);
+	
 	return phong;
 }
 
 //--------------------------------------------------------------
+ofColor ofApp::shade(const glm::vec3& p, const glm::vec3& norm, const ofColor diffuse, float distance, const ofColor specular, float power, Ray r){
+	ofColor shaded = (0,0,0);
+	glm::vec3 p1 = p;
+	//loop through all lights
+	for (int i = 0; i < light.size(); i++) {
+		blocked = false;
 
+		if (scene[0]->intersect(r, p1, glm::vec3(0, 1, 0))) {													//check if current point intersected with ground plane
 
+			//test for shadows
+
+			Ray shadowRay = Ray(scene[0]->getIntersectionPoint(), light[i]->position - scene[0]->getIntersectionPoint());
+
+			//check all sphere objects
+			for (int j = 2; j < scene.size(); j++) {
+				if (scene[j]->intersect(shadowRay, p1, scene[j]->getNormal(p1))) {
+					blocked = true;
+				}
+			}
+		}
+		if (!blocked) {
+			//add shading contribtion
+			shaded += lambert(p, norm, diffuse, distance, r, *light[i]);
+			shaded += phong(p, norm, shaded, specular, power, distance, r, *light[i]);
+		}
+	}
+	return shaded;
+}
+//--------------------------------------------------------------
 void ofApp::draw() {
-
-
 
 	ofSetDepthTest(true);
 
@@ -175,23 +195,24 @@ void ofApp::draw() {
 
 	scene.clear();
 
-	scene.push_back(new Plane(glm::vec3(0, -5, 0), glm::vec3(0, 1, 0), ofColor::darkOliveGreen, 600, 400));		//ground plane
+	scene.push_back(new Plane(glm::vec3(0, -5, 0), glm::vec3(0, 1, 0), ofColor::darkBlue, 600, 400));				//ground plane
 
-	scene.push_back(new Plane(glm::vec3(0, 1, -50), glm::vec3(0, 0, 1), ofColor::red, 600, 400));		//wall plane
+	scene.push_back(new Plane(glm::vec3(0, 1, -50), glm::vec3(0, 0, 1), ofColor::darkGray, 600, 400));	        	//wall plane
 
-	scene.push_back(new Sphere(glm::vec3(0, 1, 1), 1, ofColor::purple));											//purple sphere
+	scene.push_back(new Sphere(glm::vec3(0, 1, -2), 1, ofColor::purple));											//purple sphere
 
-	scene.push_back(new Sphere(glm::vec3(.5, 0, 2), 1, ofColor::green));											//green sphere
+	scene.push_back(new Sphere(glm::vec3(-1, 0, 1), 1, ofColor::blue));												//blue sphere
 
-	scene.push_back(new Sphere(glm::vec3(-1, 0, 3), 1, ofColor::blue));												//blue sphere
+	scene.push_back(new Sphere(glm::vec3(.5, 0, 0), 1, ofColor::green));											//green sphere
+
 
 	light.clear();
 
-	light.push_back(new Light(glm::vec3(10, 15, 20), .5));
+	light.push_back(new Light(glm::vec3(100, 150, 150), .2));
 
-	light.push_back(new Light(glm::vec3(-10, 30, 5), 2));
+	light.push_back(new Light(glm::vec3(-100, 300, 100), .2));
 
-	light.push_back(new Light(glm::vec3(-5, 10, 5), 1));
+	light.push_back(new Light(glm::vec3(-50, 100, 500), .2));
 
 
 	//draw all scene objects
@@ -201,17 +222,22 @@ void ofApp::draw() {
 		scene[i]->draw();
 	}
 
+	//draw all lights
 	for (int i = 0; i < light.size(); i++) {
 		light[i]->setIntensity(intensity);
 		light[i]->draw();
 	}
 
+
+
 	theCam->end();
+
+	
 	if (!bHide) {
 		ofSetDepthTest(false);
-
 		gui.draw();
 	}
+
 	//draw render
 	if (drawImage) {
 		ofSetColor(ofColor::white);
