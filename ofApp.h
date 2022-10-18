@@ -19,7 +19,7 @@
 //  at some point, we will want to replace this with a Material class that contains these (and other 
 //  parameters)
 //  
-//  (c) Kevin M. Smith  - 24 September 2018
+//  (c) Troy Perez - 17 October 2022
 //
 #pragma once
 
@@ -42,12 +42,6 @@ public:
 	glm::vec3 p, d;
 };
 
-class IntersectionRecord {
-	float t;
-	glm::vec3 hitLocation;
-	glm::vec3 normal;
-};
-
 //  Base class for any renderable object in the scene
 //
 class SceneObject {
@@ -55,11 +49,12 @@ public:
 	virtual void draw() = 0;    // pure virtual funcs - must be overloaded
 	virtual bool intersect(const Ray& ray, glm::vec3& point, glm::vec3& normal) { cout << "SceneObject::intersect" << endl; return false; }
 	virtual glm::vec3 getNormal(const glm::vec3& p) { return glm::vec3(0); }
+	virtual glm::vec3 getIntersectionPoint() { return glm::vec3(1); }
 
 
 	// any data common to all scene objects goes here
 	glm::vec3 position = glm::vec3(0, 0, 0);
-	glm::vec3 intersectionPoint = glm::vec3(0, 0, 0);
+	glm::vec3 intersectionPoint;
 
 	// material properties (we will ultimately replace this with a Material class - TBD)
 	//
@@ -74,8 +69,9 @@ public:
 	Sphere(glm::vec3 p, float r, ofColor diffuse = ofColor::lightGray) { position = p; radius = r; diffuseColor = diffuse; }
 	Sphere() {}
 	bool intersect(const Ray& ray, glm::vec3& point, glm::vec3& normal) {
-		bool intersect = (glm::intersectRaySphere(ray.p, ray.d, position, radius, point, normal));
+		bool intersect = (glm::intersectRaySphere(ray.p, glm::normalize(ray.d), position, radius, point, normal));
 		setNormal(normal);
+		intersectionPoint = point;
 		return intersect;
 	}
 	void draw() {
@@ -86,6 +82,7 @@ public:
 	glm::vec3 getNormal(const glm::vec3& p) { return glm::normalize(normal); }
 
 	glm::vec3 normal;
+
 	float radius = 1.0;
 };
 
@@ -105,7 +102,7 @@ public:
 		intensity = i;
 	}
 	float radius = .5;
-	float intensity = 1.0;
+	float intensity = 0.0;
 };
 
 
@@ -137,19 +134,21 @@ public:
 	bool intersect(const Ray& ray, glm::vec3& point, glm::vec3& normal);
 	float sdf(const glm::vec3& p);
 	glm::vec3 getNormal(const glm::vec3& p) { return this->normal; }
+	glm::vec3 getIntersectionPoint() { return this->intersectionPoint; }
+	void setIntersectionPoint(const glm::vec3& p) { intersectionPoint = p; }
 	void draw() {
 		plane.setPosition(position);
 		plane.setWidth(width);
 		plane.setHeight(height);
 		plane.setResolution(4, 4);
-		//plane.drawWireframe();
 		plane.draw();
 	}
 	ofPlanePrimitive plane;
 	glm::vec3 normal;
-	glm::vec3 intersectionPoint;
 	float width = 20;
 	float height = 20;
+	glm::vec3 intersectionPoint;
+
 };
 
 // view plane for render camera
@@ -173,8 +172,6 @@ public:
 	void draw() {
 		ofDrawRectangle(glm::vec3(min.x, min.y, position.z), width(), height());
 	}
-
-
 	float width() {
 		return (max.x - min.x);
 	}
@@ -240,9 +237,12 @@ public:
 	void rayTrace();
 	void drawGrid();
 	void drawAxis(glm::vec3 position);
-	ofColor lambert(const glm::vec3& p, const glm::vec3& norm, const ofColor diffuse, float r);
-	ofColor phong(const glm::vec3& p, const glm::vec3& norm, const ofColor diffuse, const ofColor specular, float power, float r);
+	ofColor ambient(ofColor diffuse);
+	ofColor lambert(const glm::vec3& p, const glm::vec3& norm, const ofColor diffuse, float distance, Ray r, Light light);
+	ofColor phong(const glm::vec3& p, const glm::vec3& norm, const ofColor diffuse, const ofColor specular, float power, float distance, Ray r, Light light);
+	ofColor shade(const glm::vec3& p, const glm::vec3& norm, const ofColor diffuse, float distance, const ofColor specular, float power, Ray r);
 
+	const float zero = 0.0;
 
 	bool bHide = true;
 	bool bShowImage = false;
@@ -257,21 +257,27 @@ public:
 	RenderCam renderCam;
 	ofImage image;
 
+	//object vectors
+	//
 	vector<SceneObject*> scene;
 	vector<Light*> light;
 
 	int imageWidth = 1200;
 	int imageHeight = 800;
 
+	int closestIndex = 0;
+
+	//state variables
+	//
 	bool drawImage = false;
 	bool trace = false;
 	bool background = true;
+	bool blocked = false;
 
 	//GUI
 	//
 	ofxFloatSlider power;
 	ofxFloatSlider intensity;
-
 	ofxPanel gui;
 
 };
